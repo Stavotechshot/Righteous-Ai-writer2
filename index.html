@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rightshore AI | Professional Text Intelligence</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Merriweather:ital,wght@0,300;0,400;0,700;1,300;1,400&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Plus Jakarta Sans', 'sans-serif'],
+              serif: ['Merriweather', 'serif'],
+            },
+          },
+        },
+      }
+      if (window.pdfjsLib) {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      }
+    </script>
+    <style>
+      :root {
+        --brand-primary: #6366f1;
+        --brand-secondary: #8b5cf6;
+        --grid-color: #e5e7eb;
+      }
+      .dark { --grid-color: rgba(255, 255, 255, 0.03); }
+      body { font-family: 'Plus Jakarta Sans', sans-serif; scroll-behavior: smooth; }
+      .font-serif-content { font-family: 'Merriweather', serif; }
+      .paper-texture {
+        background-color: transparent;
+        background-image: radial-gradient(var(--grid-color) 0.5px, transparent 0.5px);
+        background-size: 32px 32px;
+        position: relative;
+      }
+      
+      /* Refined Output Typography */
+      .output-typography { 
+        line-height: 1.75; 
+        letter-spacing: -0.009em; 
+        font-weight: 300;
+        font-size: 1.125rem; /* Mobile default */
+      }
+      
+      @media (min-width: 1024px) {
+        .output-typography {
+          font-size: 1.25rem;
+          line-height: 1.85;
+          letter-spacing: -0.011em;
+        }
+      }
+
+      .output-typography h1, .output-typography h2, .output-typography h3 {
+        font-family: 'Plus Jakarta Sans', sans-serif;
+        font-weight: 800;
+        letter-spacing: -0.04em;
+        line-height: 1.15;
+        color: #0f172a;
+        margin-top: 3rem;
+        margin-bottom: 1.5rem;
+      }
+      .dark .output-typography h1, .dark .output-typography h2, .dark .output-typography h3 {
+        color: #f8fafc;
+      }
+      
+      .output-typography h1 { font-size: 2.25rem; }
+      .output-typography h2 { font-size: 1.85rem; }
+      .output-typography h3 { font-size: 1.5rem; }
+      
+      @media (min-width: 1024px) {
+        .output-typography h1 { font-size: 3rem; }
+        .output-typography h2 { font-size: 2.25rem; }
+        .output-typography h3 { font-size: 1.75rem; }
+      }
+      
+      .output-typography p { 
+        margin-bottom: 1.75rem; 
+        color: #334155;
+      }
+      .dark .output-typography p {
+        color: #cbd5e1;
+      }
+      .output-typography strong {
+        font-weight: 700;
+        color: #0f172a;
+        letter-spacing: -0.02em;
+      }
+      .dark .output-typography strong {
+        color: #ffffff;
+      }
+
+      /* Lists */
+      .output-typography ul, .output-typography ol {
+        margin-bottom: 2rem;
+        padding-left: 1.25rem;
+      }
+      .output-typography ul { list-style-type: disc; }
+      .output-typography ol { list-style-type: decimal; }
+      .output-typography li { 
+        margin-bottom: 0.75rem; 
+        padding-left: 0.5rem;
+        color: inherit; 
+      }
+      .output-typography li::marker {
+        color: #6366f1;
+        font-weight: 800;
+      }
+
+      /* Blockquotes */
+      .output-typography blockquote {
+        border-left: 4px solid #6366f1;
+        padding: 0.5rem 0 0.5rem 2rem;
+        font-style: italic;
+        margin: 2.5rem 0;
+        color: #475569;
+        background: rgba(99, 102, 241, 0.03);
+        border-radius: 0 1rem 1rem 0;
+      }
+      .dark .output-typography blockquote {
+        color: #94a3b8;
+        background: rgba(99, 102, 241, 0.05);
+      }
+
+      /* Code Blocks */
+      .output-typography pre {
+        background-color: #f1f5f9;
+        padding: 1.25rem;
+        border-radius: 1.25rem;
+        overflow-x: auto;
+        margin: 2rem 0;
+        font-size: 0.95rem;
+        line-height: 1.6;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        border: 1px solid rgba(0,0,0,0.05);
+      }
+      .dark .output-typography pre {
+        background-color: #0f172a;
+        border-color: rgba(255,255,255,0.05);
+      }
+      .output-typography code {
+        background-color: rgba(99, 102, 241, 0.08);
+        padding: 0.2rem 0.5rem;
+        border-radius: 0.5rem;
+        font-size: 0.85em;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        color: #4f46e5;
+      }
+      .dark .output-typography code {
+        color: #818cf8;
+        background-color: rgba(99, 102, 241, 0.15);
+      }
+      .output-typography pre code {
+        background-color: transparent;
+        padding: 0;
+        border-radius: 0;
+        color: inherit;
+        font-size: inherit;
+      }
+      
+      .ai-aura {
+        position: absolute; inset: -2px;
+        background: linear-gradient(45deg, #6366f1, #8b5cf6, #ec4899, #6366f1);
+        background-size: 400% 400%; z-index: -1; filter: blur(8px); opacity: 0;
+        transition: opacity 0.5s ease; animation: aura-move 10s ease infinite;
+      }
+      .processing .ai-aura { opacity: 0.4; }
+      @keyframes aura-move {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+      }
+      .custom-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; }
+      .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+      .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.1); border-radius: 10px; }
+      .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(99, 102, 241, 0.3); }
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+    <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@19.0.0",
+    "react-dom": "https://esm.sh/react-dom@19.0.0",
+    "react-dom/client": "https://esm.sh/react-dom@19.0.0/client",
+    "@google/genai": "https://esm.sh/@google/genai@1.35.0",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/"
+  }
+}
+</script>
+  <link rel="stylesheet" href="/index.css">
+</head>
+  <body class="bg-[#FDFDFF] dark:bg-[#020617] text-slate-900 dark:text-slate-50 transition-colors">
+    <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>

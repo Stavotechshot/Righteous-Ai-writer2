@@ -1,0 +1,7 @@
+{
+  "name": "Rightshore Intelligence",
+  "description": "A high-fidelity AI writing suite for professional rephrasing, humanization, and linguistic polish.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
