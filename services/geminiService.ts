@@ -63,7 +63,7 @@ export const processTextStream = async function* (
   }
 
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_API_KEY });
     const response = await ai.models.generateContentStream({
       model,
       contents: [{ parts: [{ text: text.trim() }] }],
