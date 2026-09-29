@@ -3,5 +3,8 @@
   "description": "A high-fidelity AI writing suite for professional rephrasing, humanization, and linguistic polish.",
   "requestFramePermissions": [
     "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
   ]
 }

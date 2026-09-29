@@ -1,4 +1,30 @@
 
+export const PRIMARY_ADMIN_EMAIL = 'bryan2wyatt@gmail.com';
+
+export interface AccessControlConfig {
+  enforceWhitelist: boolean;
+  allowedEmails: string[];
+  adminEmails: string[];
+  updatedAt?: number;
+  updatedBy?: string;
+}
+
+export interface AttachedMedia {
+  base64: string;
+  mimeType: string;
+  name: string;
+  previewUrl: string;
+  size?: number;
+}
+
+export interface User {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  photoURL: string | null;
+  createdAt: number;
+}
+
 export enum AIMode {
   REPHRASE = 'REPHRASE',
   HUMANIZE = 'HUMANIZE',
@@ -70,6 +96,9 @@ export interface ToneOption {
   description: string;
 }
 
+export const DEFAULT_TONE = 'natural';
+export const DEFAULT_LANGUAGE = 'English (US)';
+
 export const TONE_OPTIONS: ToneOption[] = [
   { 
     id: 'natural', 
@@ -98,6 +127,26 @@ export const TONE_OPTIONS: ToneOption[] = [
   },
 ];
 
-export const LANGUAGES = [
+export const LANGUAGES: string[] = [
   "English (US)", "English (UK)", "Spanish", "French", "German", "Chinese", "Japanese"
 ];
+
+export interface ChatVibe {
+  id: string;
+  label: string;
+  icon: string;
+  directive: string;
+}
+
+export const CHAT_VIBES: ChatVibe[] = [
+  { id: 'flirty', label: 'Flirty & Magnetic', icon: '🔥', directive: 'Be subtly teasing, charismatic, and create electric playful tension.' },
+  { id: 'unbothered', label: 'Unbothered & High-Status', icon: '🕶️', directive: 'Keep it cool, relaxed, calm, zero desperation, effortlessly confident.' },
+  { id: 'bold', label: 'Bold & Direct', icon: '⚡', directive: 'Direct, unapologetic, cut straight through hesitation with high conviction.' },
+  { id: 'meetup', label: 'Lock In The Date', icon: '🎯', directive: 'Smoothly transition the conversation to setting up concrete plans or a real-life meetup.' },
+  { id: 'casual', label: 'Casual Banter', icon: '☕', directive: 'Low-stakes, natural, chill vibes with warm banter.' },
+  { id: 'witty', label: 'Witty & Sarcastic', icon: '🃏', directive: 'Clever, dry humor, witty comeback or funny observation.' },
+  { id: 'warm', label: 'Empathetic & Sincere', icon: '🤍', directive: 'Grounded, emotionally connected, attentive, and sincere.' },
+  { id: 'boundary', label: 'Decline / Boundary', icon: '🛡️', directive: 'Graceful, firm, respectful but decisive boundary or gentle pass.' }
+];
+
+export type FocusAtmosphere = 'default' | 'sepia' | 'minimal' | 'midnight';

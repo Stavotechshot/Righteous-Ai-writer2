@@ -4,9 +4,42 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Rightshore AI | Professional Text Intelligence</title>
+    <script>
+      // Defensive protection: prevent "Cannot set property fetch of #<Window> which has only a getter"
+      (function() {
+        try {
+          var origFetch = (typeof window !== 'undefined' && window.fetch) ? window.fetch : undefined;
+          var activeFetch = function() {
+            if (typeof origFetch === 'function') {
+              return origFetch.apply(window, arguments);
+            }
+            return Promise.reject(new Error('Fetch API not available'));
+          };
+          var patch = function(target) {
+            try {
+              var desc = Object.getOwnPropertyDescriptor(target, 'fetch');
+              if (!desc || !desc.set) {
+                Object.defineProperty(target, 'fetch', {
+                  get: function() { return activeFetch; },
+                  set: function(fn) {
+                    if (typeof fn === 'function') {
+                      activeFetch = fn;
+                    }
+                  },
+                  configurable: true,
+                  enumerable: true
+                });
+                return true;
+              }
+            } catch (err) {}
+            return false;
+          };
+          patch(window) || (window.Window && patch(window.Window.prototype)) || (window.window && patch(Object.getPrototypeOf(window)));
+        } catch (e) {}
+      })();
+    </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Merriweather:ital,wght@0,300;0,400;0,700;1,300;1,400&display=swap" rel="stylesheet">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
       tailwind.config = {
         darkMode: 'class',
@@ -18,10 +51,7 @@
             },
           },
         },
-      }
-      if (window.pdfjsLib) {
-        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-      }
+      };
     </script>
     <style>
       :root {
@@ -181,20 +211,7 @@
       .no-scrollbar::-webkit-scrollbar { display: none; }
       .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
-    <script type="importmap">
-{
-  "imports": {
-    "react": "https://esm.sh/react@19.0.0",
-    "react-dom": "https://esm.sh/react-dom@19.0.0",
-    "react-dom/client": "https://esm.sh/react-dom@19.0.0/client",
-    "@google/genai": "https://esm.sh/@google/genai@1.35.0",
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/"
-  }
-}
-</script>
-  <link rel="stylesheet" href="/index.css">
-</head>
+  </head>
   <body class="bg-[#FDFDFF] dark:bg-[#020617] text-slate-900 dark:text-slate-50 transition-colors">
     <div id="root"></div>
   <script type="module" src="/index.tsx"></script>

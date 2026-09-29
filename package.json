@@ -13,6 +13,7 @@
     "@google/genai": "1.35.0",
     "docx": "^9.6.0",
     "file-saver": "^2.0.5",
+    "firebase": "^12.12.1",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.0",
     "lucide-react": "^0.575.0",
@@ -21,6 +22,7 @@
     "react-dom": "^19.2.3"
   },
   "devDependencies": {
+    "@firebase/eslint-plugin-security-rules": "^0.0.2",
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
     "typescript": "~5.8.2",

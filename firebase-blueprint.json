@@ -1,0 +1,93 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile data",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email"]
+    },
+    "SavedEntry": {
+      "title": "Saved Entry",
+      "description": "Items in the user's library",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "inputText": { "type": "string" },
+        "outputText": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "mode": { "type": "string" },
+        "tone": { "type": "string" }
+      },
+      "required": ["userId", "title", "outputText"]
+    },
+    "Persona": {
+      "title": "Persona",
+      "description": "Custom prompt presets",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "content": { "type": "string" }
+      },
+      "required": ["userId", "name", "content"]
+    },
+    "Workspace": {
+      "title": "Workspace",
+      "description": "User's current workspace state",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "inputText": { "type": "string" },
+        "result": { "type": "string" },
+        "mode": { "type": "string" },
+        "tone": { "type": "string" },
+        "batchItems": { "type": "array" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["userId"]
+    },
+    "AccessControl": {
+      "title": "Access Control Settings",
+      "description": "Global user whitelist and permissions configuration",
+      "type": "object",
+      "properties": {
+        "enforceWhitelist": { "type": "boolean" },
+        "allowedEmails": { "type": "array" },
+        "adminEmails": { "type": "array" },
+        "updatedAt": { "type": "number" },
+        "updatedBy": { "type": "string" }
+      },
+      "required": ["enforceWhitelist", "allowedEmails", "adminEmails"]
+    }
+  },
+  "firestore": {
+    "/system/access_control": {
+      "schema": "AccessControl",
+      "description": "Singleton configuration document for user access control and family whitelist"
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile documents"
+    },
+    "/users/{userId}/library/{entryId}": {
+      "schema": "SavedEntry",
+      "description": "Saved texts in the user library"
+    },
+    "/users/{userId}/personas/{personaId}": {
+      "schema": "Persona",
+      "description": "Custom AI personas"
+    },
+    "/users/{userId}/workspace/current": {
+      "schema": "Workspace",
+      "description": "Singleton document for current workspace state"
+    }
+  }
+}
