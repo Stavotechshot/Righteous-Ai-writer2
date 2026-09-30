@@ -3,8 +3,8 @@ import express from "express";
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
-const KEY = process.env.OPENROUTER_API_KEY;
-const MODEL = process.env.OPENROUTER_MODEL || "openrouter/free";
+const KEY = process.env.GEMINI_API_KEY;
+const MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash";
 const MAX_TEXT = 12000;
 const WINDOW_MS = 60_000;
 const LIMIT = Number(process.env.RATE_LIMIT_PER_MINUTE || 30);
@@ -37,6 +37,8 @@ app.get("/", (_, res) => res.json({
   ok: true,
   service: "rightshore-ai-backend",
   status: "running",
+  provider: "gemini",
+  model: MODEL,
   health: "/health",
   endpoint: "/v1/ai"
 }));
@@ -44,7 +46,7 @@ app.get("/", (_, res) => res.json({
 app.get("/health", (_, res) => res.json({
   ok: true,
   service: "rightshore-ai-backend",
-  provider: "openrouter",
+  provider: "gemini",
   model: MODEL
 }));
 
@@ -68,10 +70,9 @@ const rules = {
 };
 
 function outputText(data) {
-  const content = data?.choices?.[0]?.message?.content;
-  if (typeof content === "string") return content.trim();
-  if (Array.isArray(content)) return content.map(part => typeof part === "string" ? part : (part?.text || "")).join("").trim();
-  return "";
+  const parts = data?.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts)) return "";
+  return parts.map(part => typeof part?.text === "string" ? part.text : "").join("").trim();
 }
 
 app.post("/v1/ai", async (req, res) => {
@@ -97,51 +98,53 @@ app.post("/v1/ai", async (req, res) => {
       ...extras
     ].join("\n\n");
 
-    const content = [];
-    if (text?.trim()) content.push({ type: "text", text: text.trim() });
+    const parts = [];
+    if (text?.trim()) parts.push({ text: text.trim() });
     if (attachedMedia?.base64 && attachedMedia?.mimeType) {
-      content.push({ type: "image_url", image_url: { url: `data:${attachedMedia.mimeType};base64,${attachedMedia.base64}` } });
+      parts.push({
+        inlineData: {
+          mimeType: attachedMedia.mimeType,
+          data: attachedMedia.base64
+        }
+      });
     }
-    if (!content.length) return res.status(400).json({ error: "text or attachedMedia is required" });
+    if (!parts.length) return res.status(400).json({ error: "text or attachedMedia is required" });
 
-    const upstream = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${KEY}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": process.env.RIGHTSHORE_SITE_URL || "https://rightshores.netlify.app",
-        "X-Title": "Rightshore AI"
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content }
-        ]
-      })
-    });
+    const upstream = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(MODEL)}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": KEY
+        },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: system }] },
+          contents: [{ role: "user", parts }]
+        })
+      }
+    );
 
-    const requestId = upstream.headers.get("x-request-id") || upstream.headers.get("x-openrouter-request-id") || "unavailable";
     const raw = await upstream.text();
     let data = {};
     try { data = raw ? JSON.parse(raw) : {}; } catch {}
 
     if (!upstream.ok) {
-      console.error("OpenRouter request failed", {
-        status: upstream.status,
-        requestId,
-        model: MODEL,
-        message: data?.error?.message || data?.message || `HTTP ${upstream.status}`
-      });
+      const status = upstream.status;
+      const message = data?.error?.message || `HTTP ${status}`;
+      console.error("Gemini request failed", { status, model: MODEL, message });
       return res.status(502).json({
         error: "AI provider request failed",
-        providerStatus: upstream.status,
-        providerRequestId: requestId
+        providerStatus: status
       });
     }
 
     const out = outputText(data);
-    if (!out) return res.status(502).json({ error: "No AI text returned", providerRequestId: requestId });
+    if (!out) {
+      console.error("Gemini returned no text", { model: MODEL, finishReason: data?.candidates?.[0]?.finishReason });
+      return res.status(502).json({ error: "No AI text returned" });
+    }
+
     res.json({ text: out });
   } catch (error) {
     console.error("AI request failed", error);
