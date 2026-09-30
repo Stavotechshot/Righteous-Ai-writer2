@@ -4,7 +4,12 @@ import express from "express";
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const KEY = process.env.GEMINI_API_KEY;
-const MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash";
+const MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+const FALLBACK_MODELS = (process.env.GEMINI_FALLBACK_MODELS || "gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash-lite")
+  .split(",")
+  .map(value => value.trim())
+  .filter(Boolean)
+  .filter((value, index, list) => value !== MODEL && list.indexOf(value) === index);
 const MAX_TEXT = 12000;
 const WINDOW_MS = 60_000;
 const LIMIT = Number(process.env.RATE_LIMIT_PER_MINUTE || 30);
@@ -39,6 +44,7 @@ app.get("/", (_, res) => res.json({
   status: "running",
   provider: "gemini",
   model: MODEL,
+  fallbackModels: FALLBACK_MODELS,
   health: "/health",
   endpoint: "/v1/ai"
 }));
@@ -47,7 +53,8 @@ app.get("/health", (_, res) => res.json({
   ok: true,
   service: "rightshore-ai-backend",
   provider: "gemini",
-  model: MODEL
+  model: MODEL,
+  fallbackModels: FALLBACK_MODELS
 }));
 
 const rules = {
@@ -73,6 +80,49 @@ function outputText(data) {
   const parts = data?.candidates?.[0]?.content?.parts;
   if (!Array.isArray(parts)) return "";
   return parts.map(part => typeof part?.text === "string" ? part.text : "").join("").trim();
+}
+
+const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
+
+async function generateWithGemini(models, requestBody) {
+  let lastFailure = null;
+
+  for (const model of models) {
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      const upstream = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": KEY
+          },
+          body: JSON.stringify(requestBody)
+        }
+      );
+
+      const raw = await upstream.text();
+      let data = {};
+      try { data = raw ? JSON.parse(raw) : {}; } catch {}
+
+      if (upstream.ok) return { data, model };
+
+      const message = data?.error?.message || `HTTP ${upstream.status}`;
+      lastFailure = { status: upstream.status, model, message };
+
+      console.error("Gemini request failed", {
+        status: upstream.status,
+        model,
+        attempt,
+        message
+      });
+
+      if (!RETRYABLE_STATUSES.has(upstream.status)) break;
+      if (attempt === 1) await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  }
+
+  return { error: lastFailure };
 }
 
 app.post("/v1/ai", async (req, res) => {
@@ -110,38 +160,27 @@ app.post("/v1/ai", async (req, res) => {
     }
     if (!parts.length) return res.status(400).json({ error: "text or attachedMedia is required" });
 
-    const upstream = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(MODEL)}:generateContent`,
+    const result = await generateWithGemini(
+      [MODEL, ...FALLBACK_MODELS],
       {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": KEY
-        },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: system }] },
-          contents: [{ role: "user", parts }]
-        })
+        systemInstruction: { parts: [{ text: system }] },
+        contents: [{ role: "user", parts }]
       }
     );
 
-    const raw = await upstream.text();
-    let data = {};
-    try { data = raw ? JSON.parse(raw) : {}; } catch {}
-
-    if (!upstream.ok) {
-      const status = upstream.status;
-      const message = data?.error?.message || `HTTP ${status}`;
-      console.error("Gemini request failed", { status, model: MODEL, message });
+    if (result.error) {
       return res.status(502).json({
         error: "AI provider request failed",
-        providerStatus: status
+        providerStatus: result.error.status
       });
     }
 
-    const out = outputText(data);
+    const out = outputText(result.data);
     if (!out) {
-      console.error("Gemini returned no text", { model: MODEL, finishReason: data?.candidates?.[0]?.finishReason });
+      console.error("Gemini returned no text", {
+        model: result.model,
+        finishReason: result.data?.candidates?.[0]?.finishReason
+      });
       return res.status(502).json({ error: "No AI text returned" });
     }
 
