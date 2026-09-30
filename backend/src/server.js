@@ -5,20 +5,13 @@ const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const KEY = process.env.GEMINI_API_KEY;
 const MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
-const FALLBACK_MODELS = (process.env.GEMINI_FALLBACK_MODELS || "gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash-lite")
-  .split(",")
-  .map(value => value.trim())
-  .filter(Boolean)
-  .filter((value, index, list) => value !== MODEL && list.indexOf(value) === index);
+const FALLBACK_MODELS = (process.env.GEMINI_FALLBACK_MODELS || "gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash-lite").split(",").map(v => v.trim()).filter(Boolean).filter((v, i, a) => v !== MODEL && a.indexOf(v) === i);
 const MAX_TEXT = 12000;
 const WINDOW_MS = 60_000;
 const LIMIT = Number(process.env.RATE_LIMIT_PER_MINUTE || 30);
 const buckets = new Map();
 
-const allowedOrigins = (process.env.RIGHTSHORE_ALLOWED_ORIGINS || "https://rightshores.netlify.app,https://main--rightshores.netlify.app")
-  .split(",")
-  .map(value => value.trim())
-  .filter(Boolean);
+const allowedOrigins = (process.env.RIGHTSHORE_ALLOWED_ORIGINS || "https://rightshores.netlify.app,https://main--rightshores.netlify.app").split(",").map(v => v.trim()).filter(Boolean);
 
 app.disable("x-powered-by");
 app.use(cors({
@@ -38,24 +31,8 @@ app.use((req, res, next) => {
   next();
 });
 
-app.get("/", (_, res) => res.json({
-  ok: true,
-  service: "rightshore-ai-backend",
-  status: "running",
-  provider: "gemini",
-  model: MODEL,
-  fallbackModels: FALLBACK_MODELS,
-  health: "/health",
-  endpoint: "/v1/ai"
-}));
-
-app.get("/health", (_, res) => res.json({
-  ok: true,
-  service: "rightshore-ai-backend",
-  provider: "gemini",
-  model: MODEL,
-  fallbackModels: FALLBACK_MODELS
-}));
+app.get("/", (_, res) => res.json({ ok: true, service: "rightshore-ai-backend", status: "running", provider: "gemini", model: MODEL, fallbackModels: FALLBACK_MODELS, health: "/health", endpoint: "/v1/ai" }));
+app.get("/health", (_, res) => res.json({ ok: true, service: "rightshore-ai-backend", provider: "gemini", model: MODEL, fallbackModels: FALLBACK_MODELS }));
 
 const rules = {
   Reply: "Write a natural reply.",
@@ -86,42 +63,26 @@ const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
 
 async function generateWithGemini(models, requestBody) {
   let lastFailure = null;
-
   for (const model of models) {
     for (let attempt = 1; attempt <= 2; attempt += 1) {
-      const upstream = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-goog-api-key": KEY
-          },
-          body: JSON.stringify(requestBody)
-        }
-      );
-
+      const upstream = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": KEY },
+        body: JSON.stringify(requestBody)
+      });
       const raw = await upstream.text();
       let data = {};
       try { data = raw ? JSON.parse(raw) : {}; } catch {}
-
       if (upstream.ok) return { data, model };
 
       const message = data?.error?.message || `HTTP ${upstream.status}`;
       lastFailure = { status: upstream.status, model, message };
-
-      console.error("Gemini request failed", {
-        status: upstream.status,
-        model,
-        attempt,
-        message
-      });
+      console.error("Gemini request failed", { status: upstream.status, model, attempt, message });
 
       if (!RETRYABLE_STATUSES.has(upstream.status)) break;
       if (attempt === 1) await new Promise(resolve => setTimeout(resolve, 500));
     }
   }
-
   return { error: lastFailure };
 }
 
@@ -150,37 +111,19 @@ app.post("/v1/ai", async (req, res) => {
 
     const parts = [];
     if (text?.trim()) parts.push({ text: text.trim() });
-    if (attachedMedia?.base64 && attachedMedia?.mimeType) {
-      parts.push({
-        inlineData: {
-          mimeType: attachedMedia.mimeType,
-          data: attachedMedia.base64
-        }
-      });
-    }
+    if (attachedMedia?.base64 && attachedMedia?.mimeType) parts.push({ inlineData: { mimeType: attachedMedia.mimeType, data: attachedMedia.base64 } });
     if (!parts.length) return res.status(400).json({ error: "text or attachedMedia is required" });
 
-    const result = await generateWithGemini(
-      [MODEL, ...FALLBACK_MODELS],
-      {
-        systemInstruction: { parts: [{ text: system }] },
-        contents: [{ role: "user", parts }]
-      }
-    );
+    const result = await generateWithGemini([MODEL, ...FALLBACK_MODELS], {
+      systemInstruction: { parts: [{ text: system }] },
+      contents: [{ role: "user", parts }]
+    });
 
-    if (result.error) {
-      return res.status(502).json({
-        error: "AI provider request failed",
-        providerStatus: result.error.status
-      });
-    }
+    if (result.error) return res.status(502).json({ error: "AI provider request failed", providerStatus: result.error.status });
 
     const out = outputText(result.data);
     if (!out) {
-      console.error("Gemini returned no text", {
-        model: result.model,
-        finishReason: result.data?.candidates?.[0]?.finishReason
-      });
+      console.error("Gemini returned no text", { model: result.model, finishReason: result.data?.candidates?.[0]?.finishReason });
       return res.status(502).json({ error: "No AI text returned" });
     }
 
