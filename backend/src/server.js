@@ -1,3 +1,4 @@
+import cors from "cors";
 import express from "express";
 
 const app = express();
@@ -9,7 +10,18 @@ const WINDOW_MS = 60_000;
 const LIMIT = Number(process.env.RATE_LIMIT_PER_MINUTE || 30);
 const buckets = new Map();
 
+const allowedOrigins = (process.env.RIGHTSHORE_ALLOWED_ORIGINS || "https://rightshores.netlify.app,https://main--rightshores.netlify.app")
+  .split(",")
+  .map(value => value.trim())
+  .filter(Boolean);
+
 app.disable("x-powered-by");
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error("Origin not allowed"));
+  }
+}));
 app.use(express.json({ limit: "15mb" }));
 
 app.use((req, res, next) => {
@@ -21,7 +33,20 @@ app.use((req, res, next) => {
   next();
 });
 
-app.get("/health", (_, res) => res.json({ ok: true, service: "rightshore-ai-backend", provider: "openrouter", model: MODEL }));
+app.get("/", (_, res) => res.json({
+  ok: true,
+  service: "rightshore-ai-backend",
+  status: "running",
+  health: "/health",
+  endpoint: "/v1/ai"
+}));
+
+app.get("/health", (_, res) => res.json({
+  ok: true,
+  service: "rightshore-ai-backend",
+  provider: "openrouter",
+  model: MODEL
+}));
 
 const rules = {
   Reply: "Write a natural reply.",
@@ -45,7 +70,7 @@ const rules = {
 function outputText(data) {
   const content = data?.choices?.[0]?.message?.content;
   if (typeof content === "string") return content.trim();
-  if (Array.isArray(content)) return content.map(p => typeof p === "string" ? p : (p?.text || "")).join("").trim();
+  if (Array.isArray(content)) return content.map(part => typeof part === "string" ? part : (part?.text || "")).join("").trim();
   return "";
 }
 
@@ -84,7 +109,7 @@ app.post("/v1/ai", async (req, res) => {
       headers: {
         Authorization: `Bearer ${KEY}`,
         "Content-Type": "application/json",
-        "HTTP-Referer": process.env.RIGHTSHORE_SITE_URL || "https://rightshore-ai.netlify.app",
+        "HTTP-Referer": process.env.RIGHTSHORE_SITE_URL || "https://rightshores.netlify.app",
         "X-Title": "Rightshore AI"
       },
       body: JSON.stringify({
@@ -102,8 +127,17 @@ app.post("/v1/ai", async (req, res) => {
     try { data = raw ? JSON.parse(raw) : {}; } catch {}
 
     if (!upstream.ok) {
-      console.error("OpenRouter request failed", { status: upstream.status, requestId, model: MODEL, message: data?.error?.message || data?.message || `HTTP ${upstream.status}` });
-      return res.status(502).json({ error: "AI provider request failed", providerStatus: upstream.status, providerRequestId: requestId });
+      console.error("OpenRouter request failed", {
+        status: upstream.status,
+        requestId,
+        model: MODEL,
+        message: data?.error?.message || data?.message || `HTTP ${upstream.status}`
+      });
+      return res.status(502).json({
+        error: "AI provider request failed",
+        providerStatus: upstream.status,
+        providerRequestId: requestId
+      });
     }
 
     const out = outputText(data);
