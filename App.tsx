@@ -2007,7 +2007,7 @@ const App: React.FC = () => {
                     </button>
                   ))}
                 </div>
-                <button type="button" disabled={isProcessing || !lastGeneration.current} onClick={() => handleExecuteSingle(undefined, true)}
+                <button type="button" disabled={isProcessing || (!lastGeneration.current && !inputText.trim() && !attachedMedia)} onClick={() => handleExecuteSingle(undefined, true)}
                   className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 text-[10px] font-black uppercase tracking-widest hover:bg-indigo-50 dark:hover:bg-slate-800 disabled:opacity-50">
                   {isProcessing ? 'Generating…' : 'Regenerate'}
                 </button>
