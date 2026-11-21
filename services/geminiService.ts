@@ -22,7 +22,8 @@ async function callBackend(
   tone = "natural",
   targetLanguage = "English (US)",
   customSystemPrompt = "",
-  attachedMedia?: AttachedMedia
+  attachedMedia?: AttachedMedia,
+  responseLength?: "short" | "balanced" | "long"
 ): Promise<string> {
   const response = await fetch(`${API_URL.replace(/\/$/, "")}/v1/ai`, {
     method: "POST",
@@ -33,6 +34,7 @@ async function callBackend(
       tone,
       language: targetLanguage,
       instruction: customSystemPrompt,
+      responseLength,
       attachedMedia: attachedMedia
         ? { base64: attachedMedia.base64, mimeType: attachedMedia.mimeType, name: attachedMedia.name }
         : undefined
@@ -51,9 +53,10 @@ export const processTextStream = async function* (
   tone = "natural",
   targetLanguage?: string,
   customSystemPrompt?: string,
-  attachedMedia?: AttachedMedia
+  attachedMedia?: AttachedMedia,
+  responseLength?: "short" | "balanced" | "long"
 ) {
-  yield await callBackend(text, mode, tone, targetLanguage || "English (US)", customSystemPrompt || "", attachedMedia);
+  yield await callBackend(text, mode, tone, targetLanguage || "English (US)", customSystemPrompt || "", attachedMedia, responseLength);
 };
 
 export const processText = async (
@@ -62,9 +65,10 @@ export const processText = async (
   tone = "natural",
   targetLanguage?: string,
   customSystemPrompt?: string,
-  attachedMedia?: AttachedMedia
+  attachedMedia?: AttachedMedia,
+  responseLength?: "short" | "balanced" | "long"
 ): Promise<string> =>
-  callBackend(text, mode, tone, targetLanguage || "English (US)", customSystemPrompt || "", attachedMedia);
+  callBackend(text, mode, tone, targetLanguage || "English (US)", customSystemPrompt || "", attachedMedia, responseLength);
 
 export const extractTextFromMedia = async (media: AttachedMedia): Promise<string> =>
   callBackend(

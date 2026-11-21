@@ -370,7 +370,13 @@ const App: React.FC = () => {
   const [focusAtmosphere, setFocusAtmosphere] = useState<FocusAtmosphere>('default');
   const [selectedChatVibe, setSelectedChatVibe] = useState<string | null>('flirty');
   const [chatGoal, setChatGoal] = useState<string>('');
-  const [chatLength, setChatLength] = useState<'punchy' | 'balanced' | 'detailed'>('punchy');
+  const [responseLength, setResponseLength] = useState<'short' | 'balanced' | 'long'>('balanced');
+  const lastGeneration = useRef<{ text: string; mode: AIMode; tone: string; language: string; instruction: string; media?: AttachedMedia } | null>(null);
+  const chooseResponseLength = (length: 'short' | 'balanced' | 'long') => {
+    setResponseLength(length);
+    setChatLength(length === 'short' ? 'punchy' : length === 'long' ? 'detailed' : 'balanced');
+  };
+  const [chatLength, setChatLength] = useState<'punchy' | 'balanced' | 'detailed'>('balanced');
   const [speakingText, setSpeakingText] = useState<string | null>(null);
   const [useDraftFeedback, setUseDraftFeedback] = useState<string | null>(null);
 
@@ -745,7 +751,7 @@ const App: React.FC = () => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isFocusMode, inputText, attachedMedia, isProcessing, isBatchMode, mode, tone, targetLang, customSystemPrompt, selectedChatVibe, chatGoal, chatLength]);
+  }, [isFocusMode, inputText, attachedMedia, isProcessing, isBatchMode, mode, tone, targetLang, customSystemPrompt, selectedChatVibe, chatGoal, chatLength, responseLength]);
 
   // Audio Speech Synthesis Preview
   const handleSpeak = (text: string) => {
@@ -839,9 +845,14 @@ const App: React.FC = () => {
     }
   };
 
-  const handleExecuteSingle = async (overrideMode?: AIMode) => {
-    const activeMode = overrideMode || mode;
-    if ((!inputText.trim() && !attachedMedia) || isProcessing) return;
+  const handleExecuteSingle = async (overrideMode?: AIMode, regenerate = false) => {
+    const previous = regenerate ? lastGeneration.current : null;
+    const sourceText = previous ? previous.text : inputText;
+    const sourceMedia = previous ? previous.media : attachedMedia || undefined;
+    const activeMode = previous?.mode || overrideMode || mode;
+    const activeTone = previous?.tone || tone;
+    const activeLanguage = previous?.language || targetLang;
+    if ((!sourceText.trim() && !sourceMedia) || isProcessing) return;
 
     if (accessConfig.enforceWhitelist) {
       if (!currentUser) {
@@ -854,6 +865,7 @@ const App: React.FC = () => {
       }
     }
 
+    if (previous) setMode(activeMode);
     setIsProcessing(true);
     setResult(""); // Clear previous result and start fresh
     setError(null);
@@ -874,25 +886,13 @@ const App: React.FC = () => {
         if (chatGoal.trim()) {
           chatDirectives.push(`USER CONVERSATION GOAL/SUBTEXT: ${chatGoal.trim()}`);
         }
-        if (chatLength === 'punchy') {
-          chatDirectives.push("LENGTH CADENCE: Ultra-punchy 1-liners or 1-2 tight lines, ideal for rapid modern texting.");
-        } else if (chatLength === 'balanced') {
-          chatDirectives.push("LENGTH CADENCE: Balanced natural texting flow (2-3 sentences).");
-        } else if (chatLength === 'detailed') {
-          chatDirectives.push("LENGTH CADENCE: Thoughtful, expressive, or detailed.");
-        }
         const directiveBlock = chatDirectives.join("\n");
         combinedPrompt = combinedPrompt ? `${combinedPrompt}\n\n${directiveBlock}` : directiveBlock;
       }
 
-      const stream = processTextStream(
-        inputText, 
-        activeMode, 
-        tone, 
-        targetLang, 
-        combinedPrompt, 
-        attachedMedia || undefined
-      );
+      if (previous) combinedPrompt = previous.instruction;
+      lastGeneration.current = { text: sourceText, mode: activeMode, tone: activeTone, language: activeLanguage, instruction: combinedPrompt, media: sourceMedia };
+      const stream = processTextStream(sourceText, activeMode, activeTone, activeLanguage, combinedPrompt, sourceMedia, responseLength);
       
       for await (const chunk of stream) {
         fullText += chunk;
@@ -901,11 +901,11 @@ const App: React.FC = () => {
       
       const newEntry: HistoryEntry = {
         id: Math.random().toString(36).substr(2, 9),
-        inputText: inputText || (attachedMedia ? `[Scanned Media: ${attachedMedia.name}]` : ''),
+        inputText: sourceText || (sourceMedia ? `[Scanned Media: ${sourceMedia.name}]` : ''),
         outputText: fullText,
         timestamp: Date.now(),
         mode: activeMode,
-        tone: tone
+        tone: activeTone
       };
       setHistory(prev => [newEntry, ...prev].slice(0, 20));
       
@@ -987,6 +987,7 @@ const App: React.FC = () => {
   const handleClearWorkspace = () => {
     if (inputText || result || customSystemPrompt || attachedMedia || batchItems.some(i => i.content)) {
       if (window.confirm("Clear current workspace? This will reset your active snippets.")) {
+        lastGeneration.current = null;
         setInputText('');
         setResult(null);
         setCustomSystemPrompt('');
@@ -1017,6 +1018,7 @@ const App: React.FC = () => {
   };
 
   const handleRestoreEntry = (entry: HistoryEntry | SavedEntry) => {
+    lastGeneration.current = null;
     setIsBatchMode(false);
     setInputText(entry.inputText);
     setResult(entry.outputText);
@@ -1674,21 +1676,21 @@ const App: React.FC = () => {
                          <div className="flex items-center gap-1 bg-white dark:bg-slate-900 p-0.5 rounded-xl border border-indigo-100 dark:border-indigo-900/50 text-[9px] font-black uppercase">
                            <button
                              type="button"
-                             onClick={() => setChatLength('punchy')}
+                             onClick={() => chooseResponseLength('short')}
                              className={`px-2.5 py-1 rounded-lg transition-all ${chatLength === 'punchy' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
                            >
                              Punchy
                            </button>
                            <button
                              type="button"
-                             onClick={() => setChatLength('balanced')}
+                             onClick={() => chooseResponseLength('balanced')}
                              className={`px-2.5 py-1 rounded-lg transition-all ${chatLength === 'balanced' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
                            >
                              Balanced
                            </button>
                            <button
                              type="button"
-                             onClick={() => setChatLength('detailed')}
+                             onClick={() => chooseResponseLength('long')}
                              className={`px-2.5 py-1 rounded-lg transition-all ${chatLength === 'detailed' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
                            >
                              Detailed
@@ -1936,7 +1938,7 @@ const App: React.FC = () => {
 
           {!isBatchMode && (isProcessing || result) && (
             <div ref={outputRef} className="space-y-6 animate-in fade-in slide-in-from-bottom-8 duration-700">
-              <div className="flex justify-between items-center px-6">
+              <div className="flex flex-wrap gap-4 justify-between items-center px-4 sm:px-6">
                 <div className="flex items-center gap-3">
                   <div className={`w-1.5 h-1.5 rounded-full bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.5)] ${isProcessing ? 'animate-pulse' : ''}`} />
                   <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-600">
@@ -1994,7 +1996,26 @@ const App: React.FC = () => {
                   </div>
                 )}
               </div>
-              <div className="paper-texture bg-white/90 dark:bg-slate-900/90 backdrop-blur-2xl border border-slate-200/60 dark:border-slate-800/60 rounded-[40px] p-12 shadow-2xl relative overflow-hidden group">
+              <div className="flex flex-wrap items-center gap-3 px-4 sm:px-6">
+                <span id="response-length-label" className="text-[10px] font-black uppercase tracking-widest text-slate-500">Response length</span>
+                <div role="group" aria-labelledby="response-length-label" className="flex rounded-xl border border-indigo-100 dark:border-indigo-900/50 bg-white dark:bg-slate-900 p-1">
+                  {(['short', 'balanced', 'long'] as const).map(length => (
+                    <button key={length} type="button" aria-pressed={responseLength === length} disabled={isProcessing}
+                      onClick={() => chooseResponseLength(length)}
+                      className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500 disabled:opacity-50 ${responseLength === length ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 hover:bg-indigo-50 dark:hover:bg-slate-800'}`}>
+                      {length}
+                    </button>
+                  ))}
+                </div>
+                <button type="button" disabled={isProcessing || !lastGeneration.current} onClick={() => handleExecuteSingle(undefined, true)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 text-[10px] font-black uppercase tracking-widest hover:bg-indigo-50 dark:hover:bg-slate-800 disabled:opacity-50">
+                  {isProcessing ? 'Generating…' : 'Regenerate'}
+                </button>
+                <p className="w-full text-xs text-slate-500" aria-live="polite">
+                  {responseLength === 'long' ? 'Detailed coverage of every relevant point, without repetition or padding.' : responseLength === 'short' ? 'A concise, direct response.' : 'A natural response covering the important points.'}
+                </p>
+              </div>
+              <div className="paper-texture bg-white/90 dark:bg-slate-900/90 backdrop-blur-2xl border border-slate-200/60 dark:border-slate-800/60 rounded-[40px] p-5 sm:p-12 shadow-2xl relative overflow-hidden group">
                 <div className="absolute top-0 right-0 p-10 opacity-[0.03] pointer-events-none transition-opacity group-hover:opacity-[0.07]">
                   <span className="text-[12rem] font-black text-slate-900 dark:text-slate-100 select-none">R</span>
                 </div>
