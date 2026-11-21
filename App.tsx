@@ -867,7 +867,7 @@ const App: React.FC = () => {
 
     if (previous) setMode(activeMode);
     setIsProcessing(true);
-    setResult(""); // Clear previous result and start fresh
+    if (!regenerate) setResult(""); // Keep the prior output available if regeneration fails
     setError(null);
     
     let fullText = "";
