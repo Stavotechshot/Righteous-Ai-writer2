@@ -43,10 +43,32 @@ export interface CustomPrompt {
   content: string;
 }
 
+export type ResponseLength = 'short' | 'balanced' | 'long';
+
+export interface ResponseSettings {
+  tone: string;
+  language: string;
+  length: ResponseLength;
+  customPrompt: string;
+  chatVibe: string | null;
+  chatGoal: string;
+}
+
+export interface GenerationRequest {
+  text: string;
+  mode: AIMode;
+  tone: string;
+  language: string;
+  instruction: string;
+  media?: AttachedMedia;
+}
+
 export interface HistoryEntry {
   id: string;
   inputText: string;
   outputText: string;
+  responseSettings?: ResponseSettings;
+  generationRequest?: GenerationRequest | null;
   timestamp: number;
   mode: AIMode;
   tone: string;

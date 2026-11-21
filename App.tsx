@@ -73,9 +73,13 @@ import {
   CHAT_VIBES, 
   FocusAtmosphere,
   PRIMARY_ADMIN_EMAIL,
-  AccessControlConfig
+  AccessControlConfig,
+  ResponseSettings,
+  GenerationRequest
 } from './types';
 import { processText, processTextStream, extractTextFromMedia } from './services/geminiService';
+import { ResponseSettingsPanel } from './components/ResponseSettingsPanel';
+import { normalizeSettings, searchEntries, persistableRequest } from './services/workspaceSettings';
 import { Button } from './components/Button';
 import { Tooltip } from './components/Tooltip';
 import { AccessControlModal } from './components/AccessControlModal';
@@ -350,10 +354,11 @@ const App: React.FC = () => {
   const [targetLang, setTargetLang] = useState<string>(() => (Array.isArray(LANGUAGES) && LANGUAGES[0]) || DEFAULT_LANGUAGE || 'English (US)');
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isToneMenuOpen, setIsToneMenuOpen] = useState(false);
-  const [isLangMenuOpen, setIsLangMenuOpen] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState(false);
+  const [pendingSave, setPendingSave] = useState<Partial<SavedEntry> | null>(null);
+  const [saveTitle, setSaveTitle] = useState('');
+  const [isSavingReply, setIsSavingReply] = useState(false);
   const [attachedMedia, setAttachedMedia] = useState<AttachedMedia | null>(null);
   const [isExtractingText, setIsExtractingText] = useState(false);
   const [extractFeedback, setExtractFeedback] = useState(false);
@@ -371,12 +376,25 @@ const App: React.FC = () => {
   const [selectedChatVibe, setSelectedChatVibe] = useState<string | null>('flirty');
   const [chatGoal, setChatGoal] = useState<string>('');
   const [responseLength, setResponseLength] = useState<'short' | 'balanced' | 'long'>('balanced');
-  const lastGeneration = useRef<{ text: string; mode: AIMode; tone: string; language: string; instruction: string; media?: AttachedMedia } | null>(null);
+  const lastGeneration = useRef<GenerationRequest | null>(null);
   const chooseResponseLength = (length: 'short' | 'balanced' | 'long') => {
     setResponseLength(length);
-    setChatLength(length === 'short' ? 'punchy' : length === 'long' ? 'detailed' : 'balanced');
   };
-  const [chatLength, setChatLength] = useState<'punchy' | 'balanced' | 'detailed'>('balanced');
+  const [historySearch, setHistorySearch] = useState('');
+  const [librarySearch, setLibrarySearch] = useState('');
+  const generationSettings = useRef<ResponseSettings | null>(null);
+  const responseSettings: ResponseSettings = { tone, language: targetLang, length: responseLength, customPrompt: customSystemPrompt, chatVibe: selectedChatVibe, chatGoal };
+  const applyResponseSettings = (saved: unknown) => {
+    const settings = normalizeSettings(saved);
+    setTone(settings.tone);
+    setTargetLang(settings.language);
+    setResponseLength(settings.length);
+    setCustomSystemPrompt(settings.customPrompt);
+    setSelectedChatVibe(settings.chatVibe);
+    setChatGoal(settings.chatGoal);
+  };
+  const filteredHistory = useMemo(() => searchEntries(history, historySearch), [history, historySearch]);
+  const filteredLibrary = useMemo(() => searchEntries(savedEntries, librarySearch), [savedEntries, librarySearch]);
   const [speakingText, setSpeakingText] = useState<string | null>(null);
   const [useDraftFeedback, setUseDraftFeedback] = useState<string | null>(null);
 
@@ -481,7 +499,6 @@ const App: React.FC = () => {
   const isAccessDenied = Boolean(currentUser && accessConfig.enforceWhitelist && !isWhitelisted);
 
   const outputRef = useRef<HTMLDivElement>(null);
-  const toneMenuRef = useRef<HTMLDivElement>(null);
   const carouselRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -590,6 +607,9 @@ const App: React.FC = () => {
           setResult(data.result || null);
           setMode(data.mode || AIMode.REPHRASE);
           setTone(data.tone || 'natural');
+          if (data.responseSettings) applyResponseSettings(data.responseSettings);
+          lastGeneration.current = data.generationRequest || null;
+          generationSettings.current = data.generationSettings ? normalizeSettings(data.generationSettings) : data.responseSettings ? normalizeSettings(data.responseSettings) : null;
           setBatchItems(data.batchItems || [{ id: '1', name: 'Snippet 1', content: '', status: 'pending' }]);
         }
       }
@@ -617,6 +637,9 @@ const App: React.FC = () => {
           result,
           mode,
           tone,
+          responseSettings,
+          generationRequest: persistableRequest(lastGeneration.current),
+          generationSettings: generationSettings.current,
           batchItems,
           updatedAt: now
         }, { merge: true });
@@ -627,7 +650,7 @@ const App: React.FC = () => {
     }, 2000);
 
     return () => clearTimeout(timeoutId);
-  }, [inputText, result, mode, tone, batchItems, currentUser]);
+  }, [inputText, result, mode, tone, targetLang, responseLength, customSystemPrompt, selectedChatVibe, chatGoal, batchItems, currentUser]);
 
   const handleLogin = async () => {
     try {
@@ -674,6 +697,9 @@ const App: React.FC = () => {
         setSavedEntries(data.savedEntries || []);
         if (data.mode) setMode(data.mode);
         if (data.tone) setTone(data.tone);
+        if (data.responseSettings) applyResponseSettings(data.responseSettings);
+        lastGeneration.current = data.generationRequest || null;
+        generationSettings.current = data.generationSettings ? normalizeSettings(data.generationSettings) : data.responseSettings ? normalizeSettings(data.responseSettings) : null;
         if (data.batchItems) setBatchItems(data.batchItems);
       } catch (e) {
         console.error("Failed to parse saved session", e);
@@ -695,13 +721,16 @@ const App: React.FC = () => {
         savedEntries,
         mode,
         tone,
+        responseSettings,
+        generationRequest: persistableRequest(lastGeneration.current),
+        generationSettings: generationSettings.current,
         batchItems
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
     }, 1000);
 
     return () => clearTimeout(timeoutId);
-  }, [inputText, customSystemPrompt, savedPrompts, result, history, savedEntries, mode, tone, batchItems]);
+  }, [inputText, customSystemPrompt, savedPrompts, result, history, savedEntries, mode, tone, targetLang, responseLength, selectedChatVibe, chatGoal, batchItems]);
 
   const stats = useMemo(() => {
     const text = deferredResult || deferredInputText;
@@ -751,7 +780,7 @@ const App: React.FC = () => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isFocusMode, inputText, attachedMedia, isProcessing, isBatchMode, mode, tone, targetLang, customSystemPrompt, selectedChatVibe, chatGoal, chatLength, responseLength]);
+  }, [isFocusMode, inputText, attachedMedia, isProcessing, isBatchMode, mode, tone, targetLang, customSystemPrompt, selectedChatVibe, chatGoal, responseLength]);
 
   // Audio Speech Synthesis Preview
   const handleSpeak = (text: string) => {
@@ -866,6 +895,7 @@ const App: React.FC = () => {
     }
 
     if (previous) setMode(activeMode);
+    setPendingSave(null);
     setIsProcessing(true);
     if (!regenerate) setResult(""); // Keep the prior output available if regeneration fails
     setError(null);
@@ -891,6 +921,7 @@ const App: React.FC = () => {
       }
 
       if (previous) combinedPrompt = previous.instruction;
+      generationSettings.current = { ...(previous && generationSettings.current ? generationSettings.current : responseSettings), tone: activeTone, language: activeLanguage, length: responseLength };
       lastGeneration.current = { text: sourceText, mode: activeMode, tone: activeTone, language: activeLanguage, instruction: combinedPrompt, media: sourceMedia };
       const stream = processTextStream(sourceText, activeMode, activeTone, activeLanguage, combinedPrompt, sourceMedia, responseLength);
       
@@ -903,6 +934,8 @@ const App: React.FC = () => {
         id: Math.random().toString(36).substr(2, 9),
         inputText: sourceText || (sourceMedia ? `[Scanned Media: ${sourceMedia.name}]` : ''),
         outputText: fullText,
+        responseSettings: generationSettings.current,
+        generationRequest: persistableRequest(lastGeneration.current),
         timestamp: Date.now(),
         mode: activeMode,
         tone: activeTone
@@ -954,7 +987,7 @@ const App: React.FC = () => {
       setBatchItems([...updatedItems]);
 
       try {
-        const output = await processText(item.content, mode, tone, targetLang, customSystemPrompt);
+        const output = await processText(item.content, mode, tone, targetLang, customSystemPrompt, undefined, responseLength);
         updatedItems[index] = { 
           ...updatedItems[index], 
           status: 'completed', 
@@ -966,6 +999,8 @@ const App: React.FC = () => {
           id: Math.random().toString(36).substr(2, 9),
           inputText: item.content,
           outputText: output,
+          responseSettings,
+          generationRequest: { text: item.content, mode, tone, language: targetLang, instruction: customSystemPrompt },
           timestamp: Date.now(),
           mode: mode,
           tone: tone
@@ -988,6 +1023,8 @@ const App: React.FC = () => {
     if (inputText || result || customSystemPrompt || attachedMedia || batchItems.some(i => i.content)) {
       if (window.confirm("Clear current workspace? This will reset your active snippets.")) {
         lastGeneration.current = null;
+        generationSettings.current = null;
+        setPendingSave(null);
         setInputText('');
         setResult(null);
         setCustomSystemPrompt('');
@@ -1018,7 +1055,10 @@ const App: React.FC = () => {
   };
 
   const handleRestoreEntry = (entry: HistoryEntry | SavedEntry) => {
-    lastGeneration.current = null;
+    setPendingSave(null);
+    lastGeneration.current = entry.generationRequest || null;
+    generationSettings.current = entry.responseSettings || null;
+    applyResponseSettings(entry.responseSettings || { tone: entry.tone });
     setIsBatchMode(false);
     setInputText(entry.inputText);
     setResult(entry.outputText);
@@ -1027,37 +1067,43 @@ const App: React.FC = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleSaveToLibrary = async (textToSave?: string, originalText?: string) => {
+  const handleSaveToLibrary = (textToSave?: string, originalText?: string) => {
     const finalResult = textToSave || result;
-    const finalInput = originalText || inputText;
-    
     if (!finalResult) return;
-    const title = window.prompt("Name this snippet for your Library:");
-    if (!title) return;
-
-    const saved: Partial<SavedEntry> = {
-      title: title,
-      inputText: finalInput,
+    setSaveTitle('');
+    setError(null);
+    setPendingSave({
+      inputText: originalText || lastGeneration.current?.text || inputText,
       outputText: finalResult,
       timestamp: Date.now(),
-      mode: mode,
-      tone: tone
-    };
+      mode: lastGeneration.current?.mode || mode,
+      tone: generationSettings.current?.tone || tone,
+      responseSettings: generationSettings.current || responseSettings,
+      generationRequest: persistableRequest(lastGeneration.current)
+    });
+  };
 
-    if (currentUser) {
-      const entryId = Math.random().toString(36).substr(2, 9);
-      const entryRef = doc(db, 'users', currentUser.uid, 'library', entryId);
-      try {
-        await setDoc(entryRef, { ...saved, userId: currentUser.uid });
-      } catch (err) {
-        handleFirestoreError(err, OperationType.WRITE, `users/${currentUser.uid}/library/${entryId}`);
+  const handleConfirmSave = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!pendingSave || !saveTitle.trim() || isSavingReply) return;
+    const entryId = Math.random().toString(36).substr(2, 9);
+    const saved = { ...pendingSave, title: saveTitle.trim() };
+    setIsSavingReply(true);
+    setError(null);
+    try {
+      if (currentUser) {
+        await setDoc(doc(db, 'users', currentUser.uid, 'library', entryId), { ...saved, userId: currentUser.uid });
+      } else {
+        setSavedEntries(prev => [{ ...saved, id: entryId } as SavedEntry, ...prev]);
       }
-    } else {
-      setSavedEntries(prev => [{ ...saved, id: Math.random().toString(36).substr(2, 9) } as SavedEntry, ...prev]);
+      setPendingSave(null);
+      setSaveFeedback(true);
+      setTimeout(() => setSaveFeedback(false), 2000);
+    } catch (err: any) {
+      setError(err.message || 'Could not save this reply. Please try again.');
+    } finally {
+      setIsSavingReply(false);
     }
-    
-    setSaveFeedback(true);
-    setTimeout(() => setSaveFeedback(false), 2000);
   };
 
   const handleDeleteSavedEntry = async (e: React.MouseEvent, id: string) => {
@@ -1179,7 +1225,6 @@ const App: React.FC = () => {
     }
   };
 
-  const currentTone = (Array.isArray(TONE_OPTIONS) && TONE_OPTIONS.find(t => t.id === tone)) || (Array.isArray(TONE_OPTIONS) && TONE_OPTIONS[0]) || { id: 'natural', label: 'Natural & Balanced', description: 'Clear and conversational' };
 
   return (
     <div className="min-h-screen bg-[#FDFDFF] dark:bg-[#020617] transition-all duration-300 pb-20 relative overflow-x-hidden">
@@ -1485,61 +1530,11 @@ const App: React.FC = () => {
                         Reset
                       </button>
                     </Tooltip>
-                    <div className="relative" ref={toneMenuRef}>
-                      <Tooltip text="Adjust conversational flavor">
-                        <button 
-                          onClick={() => setIsToneMenuOpen(!isToneMenuOpen)}
-                          className="px-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-600 flex items-center gap-3 hover:border-indigo-500 transition-all"
-                        >
-                          {currentTone.label}
-                          <svg className={`w-3 h-3 transition-transform ${isToneMenuOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" /></svg>
-                        </button>
-                      </Tooltip>
-                      {isToneMenuOpen && (
-                        <div className="absolute top-full right-0 mt-2 w-72 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl z-50 p-2 animate-in fade-in zoom-in-95 duration-200">
-                          {(TONE_OPTIONS || []).map(o => (
-                            <button 
-                              key={o.id}
-                              onClick={() => { setTone(o.id); setIsToneMenuOpen(false); }}
-                              className={`w-full text-left p-4 rounded-xl transition-all ${tone === o.id ? 'bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700' : 'hover:bg-slate-50 dark:hover:bg-slate-700'}`}
-                            >
-                              <span className="block text-[11px] font-black uppercase mb-1">{o.label}</span>
-                              <span className="block text-[10px] text-slate-400 leading-tight">{o.description}</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {mode === AIMode.TRANSLATE && (
-                      <div className="relative">
-                        <Tooltip text="Select target language">
-                          <button 
-                            onClick={() => setIsLangMenuOpen(!isLangMenuOpen)}
-                            className="px-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-600 flex items-center gap-3 hover:border-indigo-500 transition-all"
-                          >
-                            To: {targetLang}
-                            <svg className={`w-3 h-3 transition-transform ${isLangMenuOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" /></svg>
-                          </button>
-                        </Tooltip>
-                        {isLangMenuOpen && (
-                          <div className="absolute top-full right-0 mt-2 w-48 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl z-50 p-2 animate-in fade-in zoom-in-95 duration-200">
-                            {(LANGUAGES || []).map(l => (
-                              <button 
-                                key={l}
-                                onClick={() => { setTargetLang(l); setIsLangMenuOpen(false); }}
-                                className={`w-full text-left p-3 rounded-xl transition-all text-[11px] font-bold ${targetLang === l ? 'bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700' : 'hover:bg-slate-50 dark:hover:bg-slate-700'}`}
-                              >
-                                {l}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
                   </div>
                 </div>
 
+                <ResponseSettingsPanel settings={responseSettings} disabled={isProcessing}
+                  onChange={applyResponseSettings} />
                 <div 
                   className="p-8"
                   onPaste={handlePaste}
@@ -1673,29 +1668,7 @@ const App: React.FC = () => {
                              No Restrictions
                            </span>
                          </div>
-                         <div className="flex items-center gap-1 bg-white dark:bg-slate-900 p-0.5 rounded-xl border border-indigo-100 dark:border-indigo-900/50 text-[9px] font-black uppercase">
-                           <button
-                             type="button"
-                             onClick={() => chooseResponseLength('short')}
-                             className={`px-2.5 py-1 rounded-lg transition-all ${chatLength === 'punchy' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-                           >
-                             Punchy
-                           </button>
-                           <button
-                             type="button"
-                             onClick={() => chooseResponseLength('balanced')}
-                             className={`px-2.5 py-1 rounded-lg transition-all ${chatLength === 'balanced' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-                           >
-                             Balanced
-                           </button>
-                           <button
-                             type="button"
-                             onClick={() => chooseResponseLength('long')}
-                             className={`px-2.5 py-1 rounded-lg transition-all ${chatLength === 'detailed' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-                           >
-                             Detailed
-                           </button>
-                         </div>
+
                        </div>
 
                        {/* Vibe Selection Chips */}
@@ -1816,6 +1789,7 @@ const App: React.FC = () => {
             </div>
           ) : (
             <div className="space-y-8">
+               <ResponseSettingsPanel settings={responseSettings} disabled={isProcessing} onChange={applyResponseSettings} />
                <div className="flex justify-between items-center px-6">
                   <div className="flex items-center gap-3">
                     <div className="w-2 h-2 rounded-full bg-indigo-500" />
@@ -1996,6 +1970,19 @@ const App: React.FC = () => {
                   </div>
                 )}
               </div>
+              {pendingSave && (
+                <form onSubmit={handleConfirmSave} aria-label="Save reply" className="mx-4 sm:mx-6 rounded-2xl border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 p-4 space-y-3">
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-300">Reply title
+                    <input autoFocus required maxLength={256} value={saveTitle} onChange={e => setSaveTitle(e.target.value)}
+                      className="mt-2 w-full min-h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-transparent px-3 py-2 outline-none focus:border-indigo-500" placeholder="Name this saved reply" />
+                  </label>
+                  {error && <p role="alert" className="text-xs text-rose-500">{error}</p>}
+                  <div className="flex gap-2">
+                    <button type="submit" disabled={isSavingReply || !saveTitle.trim()} className="min-h-11 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{isSavingReply ? 'Saving…' : 'Save reply'}</button>
+                    <button type="button" disabled={isSavingReply} onClick={() => setPendingSave(null)} className="min-h-11 rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-2 text-xs font-bold">Cancel</button>
+                  </div>
+                </form>
+              )}
               <div className="flex flex-wrap items-center gap-3 px-4 sm:px-6">
                 <span id="response-length-label" className="text-[10px] font-black uppercase tracking-widest text-slate-500">Response length</span>
                 <div role="group" aria-labelledby="response-length-label" className="flex rounded-xl border border-indigo-100 dark:border-indigo-900/50 bg-white dark:bg-slate-900 p-1">
@@ -2196,8 +2183,14 @@ const App: React.FC = () => {
                   <h4 className="text-[10px] font-black uppercase tracking-widest text-indigo-500">Saved Library</h4>
                   <span className="text-[10px] font-black px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded-lg">{savedEntries.length}</span>
                 </div>
+                <label className="block mb-4"><span className="sr-only">Search saved replies</span>
+                  <input type="search" value={librarySearch} onChange={e => setLibrarySearch(e.target.value)} placeholder="Search saved replies…"
+                    className="w-full min-h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-transparent px-3 py-2 text-sm outline-none focus:border-indigo-500" />
+                </label>
+                {librarySearch && <p role="status" className="mb-3 text-xs text-slate-500">{filteredLibrary.length} matching saved replies</p>}
                 <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-                  {savedEntries.map((s) => (
+                  {filteredLibrary.length === 0 && <p className="py-6 text-sm text-slate-500">No saved replies match your search.</p>}
+                  {filteredLibrary.map((s) => (
                     <Tooltip key={s.id} text="Restore this saved result" position="left">
                       <div 
                         className="w-full p-4 rounded-2xl bg-indigo-50/30 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-900/30 cursor-pointer transition-all group relative"
@@ -2288,8 +2281,13 @@ const App: React.FC = () => {
                <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Context History</h4>
                <span className="text-[10px] font-black px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded-lg">{history.length}</span>
              </div>
+             <label className="block mb-4"><span className="sr-only">Search history</span>
+               <input type="search" value={historySearch} onChange={e => setHistorySearch(e.target.value)} placeholder="Search history…"
+                 className="w-full min-h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-transparent px-3 py-2 text-sm outline-none focus:border-indigo-500" />
+             </label>
+             {historySearch && <p role="status" className="mb-3 text-xs text-slate-500">{filteredHistory.length} matching history entries</p>}
              <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                {history.map((entry) => (
+                {filteredHistory.map((entry) => (
                   <Tooltip key={entry.id} text="Restore session to this point" position="left">
                     <div 
                       className="w-full p-5 rounded-2xl bg-slate-50/50 dark:bg-slate-800/30 border border-transparent hover:border-slate-200 dark:hover:border-slate-700 cursor-pointer transition-all group relative"
@@ -2315,6 +2313,7 @@ const App: React.FC = () => {
                     </div>
                   </Tooltip>
                 ))}
+                {history.length > 0 && filteredHistory.length === 0 && <p className="py-6 text-sm text-slate-500">No history matches your search.</p>}
                 {history.length === 0 && (
                   <div className="text-center py-20">
                     <div className="w-12 h-12 bg-slate-50 dark:bg-slate-800 rounded-2xl flex items-center justify-center mx-auto mb-4">
