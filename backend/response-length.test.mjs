@@ -6,7 +6,7 @@ import { test } from 'node:test';
 if (process.env.RIGHTSHORE_TEST_CHILD) {
   globalThis.fetch = async (url, options) => {
     process.send({ request: JSON.parse(options.body) });
-    return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: 'Generated reply' }] } }] }));
+    return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: 'Internal reasoning', thought: true }, { text: 'Generated reply' }] } }] }));
   };
   await import('./src/server.js');
 } else {
@@ -28,6 +28,31 @@ if (process.env.RIGHTSHORE_TEST_CHILD) {
         for (const value of [base.tone, base.language, base.instruction]) assert.ok(system.includes(value));
         if (length === 'long') assert.match(system, /every relevant point/);
         if (length === undefined) assert.ok(!system.includes('RESPONSE LENGTH'));
+      }
+      for (const [action, context, expected] of [
+        ['Reply', 'Prefer concise wording', true],
+        ['Email', '  ', false],
+        ['Translate', 'Prefer concise wording', false]
+      ]) {
+        const pending = once(child, 'message');
+        const response = await fetch('http://localhost:4399/v1/ai', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...base, action, personalContext: context })
+        });
+        assert.equal(response.status, 200);
+        const [{ request }] = await pending;
+        assert.equal(request.contents[0].parts[2]?.text, expected ? JSON.stringify({ personalContext: context }) : undefined);
+        assert.equal(request.systemInstruction.parts[0].text.includes('separate personalContext field'), expected);
+      }
+      for (const body of [
+        { ...base, personalContext: 'x'.repeat(601) },
+        { ...base, personalContext: { preference: 'concise' } },
+        { ...base, action: 'constructor' }
+      ]) {
+        const response = await fetch('http://localhost:4399/v1/ai', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        });
+        assert.equal(response.status, 400);
       }
       for (const invalid of ['huge', null, {}, '__proto__']) {
         const response = await fetch('http://localhost:4399/v1/ai', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...base, responseLength: invalid }) });

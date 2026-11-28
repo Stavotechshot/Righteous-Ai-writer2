@@ -23,7 +23,8 @@ async function callBackend(
   targetLanguage = "English (US)",
   customSystemPrompt = "",
   attachedMedia?: AttachedMedia,
-  responseLength?: "short" | "balanced" | "long"
+  responseLength?: "short" | "balanced" | "long",
+  personalContext?: string
 ): Promise<string> {
   const response = await fetch(`${API_URL.replace(/\/$/, "")}/v1/ai`, {
     method: "POST",
@@ -35,6 +36,7 @@ async function callBackend(
       language: targetLanguage,
       instruction: customSystemPrompt,
       responseLength,
+      personalContext: [AIMode.RESPOND, AIMode.EMAIL, AIMode.HUMANIZE].includes(mode) ? personalContext : undefined,
       attachedMedia: attachedMedia
         ? { base64: attachedMedia.base64, mimeType: attachedMedia.mimeType, name: attachedMedia.name }
         : undefined
@@ -54,9 +56,10 @@ export const processTextStream = async function* (
   targetLanguage?: string,
   customSystemPrompt?: string,
   attachedMedia?: AttachedMedia,
-  responseLength?: "short" | "balanced" | "long"
+  responseLength?: "short" | "balanced" | "long",
+  personalContext?: string
 ) {
-  yield await callBackend(text, mode, tone, targetLanguage || "English (US)", customSystemPrompt || "", attachedMedia, responseLength);
+  yield await callBackend(text, mode, tone, targetLanguage || "English (US)", customSystemPrompt || "", attachedMedia, responseLength, personalContext);
 };
 
 export const processText = async (
@@ -66,9 +69,10 @@ export const processText = async (
   targetLanguage?: string,
   customSystemPrompt?: string,
   attachedMedia?: AttachedMedia,
-  responseLength?: "short" | "balanced" | "long"
+  responseLength?: "short" | "balanced" | "long",
+  personalContext?: string
 ): Promise<string> =>
-  callBackend(text, mode, tone, targetLanguage || "English (US)", customSystemPrompt || "", attachedMedia, responseLength);
+  callBackend(text, mode, tone, targetLanguage || "English (US)", customSystemPrompt || "", attachedMedia, responseLength, personalContext);
 
 export const extractTextFromMedia = async (media: AttachedMedia): Promise<string> =>
   callBackend(
