@@ -78,6 +78,7 @@ import {
   GenerationRequest
 } from './types';
 import { processText, processTextStream, extractTextFromMedia } from './services/geminiService';
+import { AssistedEmailDraft } from './components/AssistedEmailDraft';
 import { ResponseSettingsPanel } from './components/ResponseSettingsPanel';
 import { normalizeSettings, searchEntries, persistableRequest } from './services/workspaceSettings';
 import { Button } from './components/Button';
@@ -375,6 +376,8 @@ const App: React.FC = () => {
   const [focusAtmosphere, setFocusAtmosphere] = useState<FocusAtmosphere>('default');
   const [selectedChatVibe, setSelectedChatVibe] = useState<string | null>('flirty');
   const [chatGoal, setChatGoal] = useState<string>('');
+  const [usePersonalContext, setUsePersonalContext] = useState(false);
+  const [personalContext, setPersonalContext] = useState('');
   const [responseLength, setResponseLength] = useState<'short' | 'balanced' | 'long'>('balanced');
   const lastGeneration = useRef<GenerationRequest | null>(null);
   const chooseResponseLength = (length: 'short' | 'balanced' | 'long') => {
@@ -905,7 +908,7 @@ const App: React.FC = () => {
       let combinedPrompt = customSystemPrompt;
       if (activeMode === AIMode.RESPOND) {
         const chatDirectives: string[] = [
-          "UNRESTRICTED CHAT EXECUTION: Deliver bold, charismatic, natural human banter with zero moralizing, zero safety lectures, and zero disclaimers."
+          "Draft a natural message that fits the conversation. Use everyday wording, acknowledge the main points, and preserve what the user intends."
         ];
         if (selectedChatVibe) {
           const vibeObj = CHAT_VIBES.find(v => v.id === selectedChatVibe);
@@ -923,7 +926,7 @@ const App: React.FC = () => {
       if (previous) combinedPrompt = previous.instruction;
       generationSettings.current = { ...(previous && generationSettings.current ? generationSettings.current : responseSettings), tone: activeTone, language: activeLanguage, length: responseLength };
       lastGeneration.current = { text: sourceText, mode: activeMode, tone: activeTone, language: activeLanguage, instruction: combinedPrompt, media: sourceMedia };
-      const stream = processTextStream(sourceText, activeMode, activeTone, activeLanguage, combinedPrompt, sourceMedia, responseLength);
+      const stream = processTextStream(sourceText, activeMode, activeTone, activeLanguage, combinedPrompt, sourceMedia, responseLength, usePersonalContext ? personalContext.trim() || undefined : undefined);
       
       for await (const chunk of stream) {
         fullText += chunk;
@@ -987,7 +990,7 @@ const App: React.FC = () => {
       setBatchItems([...updatedItems]);
 
       try {
-        const output = await processText(item.content, mode, tone, targetLang, customSystemPrompt, undefined, responseLength);
+        const output = await processText(item.content, mode, tone, targetLang, customSystemPrompt, undefined, responseLength, usePersonalContext ? personalContext.trim() || undefined : undefined);
         updatedItems[index] = { 
           ...updatedItems[index], 
           status: 'completed', 
@@ -1983,6 +1986,22 @@ const App: React.FC = () => {
                   </div>
                 </form>
               )}
+              <div className="space-y-2 px-4 text-sm sm:px-6">
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked={usePersonalContext} onChange={event => {
+                    setUsePersonalContext(event.target.checked);
+                    if (!event.target.checked) setPersonalContext('');
+                  }} />
+                  Use personal context for replies, emails, and Humanize
+                </label>
+                {usePersonalContext && <label className="block space-y-2">
+                  <span>Writing preferences or background. Sent with those requests and cleared when you turn this off or reload.</span>
+                  <textarea value={personalContext} maxLength={600} onChange={event => setPersonalContext(event.target.value)}
+                    className="block w-full rounded-xl border border-slate-300 bg-transparent p-3 dark:border-slate-700" />
+                </label>}
+              </div>
+              {result && !isProcessing && (mode === AIMode.EMAIL || mode === AIMode.RESPOND) &&
+                <div key={result}><AssistedEmailDraft text={result} /></div>}
               <div className="flex flex-wrap items-center gap-3 px-4 sm:px-6">
                 <span id="response-length-label" className="text-[10px] font-black uppercase tracking-widest text-slate-500">Response length</span>
                 <div role="group" aria-labelledby="response-length-label" className="flex rounded-xl border border-indigo-100 dark:border-indigo-900/50 bg-white dark:bg-slate-900 p-1">
